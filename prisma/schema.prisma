@@ -1,0 +1,149 @@
+// prisma/schema.prisma
+// Royal Cut Barber Shop — Database Schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── ENUMS ───────────────────────────────
+
+enum Role {
+  ADMIN
+  BARBER
+}
+
+enum BookingStatus {
+  PENDING      // aguarda confirmação de pagamento
+  CONFIRMED    // pago / confirmado
+  CANCELLED    // cancelado
+  COMPLETED    // serviço realizado
+  NO_SHOW      // cliente não apareceu
+}
+
+enum PaymentStatus {
+  PENDING
+  PAID
+  REFUNDED
+  FAILED
+}
+
+enum ReminderType {
+  EMAIL
+  SMS
+}
+
+// ─── MODELS ──────────────────────────────
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  passwordHash String
+  role         Role      @default(BARBER)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  barber       Barber?
+
+  @@map("users")
+}
+
+model Barber {
+  id          String    @id @default(cuid())
+  userId      String    @unique
+  name        String
+  bio         String?
+  specialty   String?
+  photoUrl    String?
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bookings    Booking[]
+  schedule    Schedule[]
+
+  @@map("barbers")
+}
+
+model Service {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  price       Decimal   @db.Decimal(8, 2)   // euros
+  duration    Int                            // minutos
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  bookings    Booking[]
+
+  @@map("services")
+}
+
+model Booking {
+  id              String        @id @default(cuid())
+  clientName      String
+  clientEmail     String
+  clientPhone     String
+
+  barberId        String
+  serviceId       String
+
+  startAt         DateTime
+  endAt           DateTime
+
+  status          BookingStatus @default(PENDING)
+  notes           String?
+
+  // Stripe
+  stripeSessionId String?       @unique
+  stripePaymentId String?
+  paymentStatus   PaymentStatus @default(PENDING)
+  amountPaid      Decimal?      @db.Decimal(8, 2)
+
+  // Reminders enviados
+  reminders       Reminder[]
+
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  barber          Barber        @relation(fields: [barberId], references: [id])
+  service         Service       @relation(fields: [serviceId], references: [id])
+
+  @@index([startAt])
+  @@index([barberId, startAt])
+  @@index([clientEmail])
+  @@map("bookings")
+}
+
+model Schedule {
+  id          String   @id @default(cuid())
+  barberId    String
+  dayOfWeek   Int      // 0=Dom, 1=Seg, ..., 6=Sab
+  startTime   String   // "09:00"
+  endTime     String   // "19:00"
+  active      Boolean  @default(true)
+
+  barber      Barber   @relation(fields: [barberId], references: [id], onDelete: Cascade)
+
+  @@unique([barberId, dayOfWeek])
+  @@map("schedules")
+}
+
+model Reminder {
+  id          String       @id @default(cuid())
+  bookingId   String
+  type        ReminderType
+  sentAt      DateTime?
+  error       String?
+  createdAt   DateTime     @default(now())
+
+  booking     Booking      @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@map("reminders")
+}
